@@ -155,7 +155,6 @@ func (s *Sevcord) Listen() {
     s.dg.AddHandler(s.interactionHandler)
     s.dg.AddHandler(func(d *discordgo.Session, r *discordgo.Ready) {
         Logger.Println("Bot Ready")
-        for _, guild := range r.Guilds { if guild != nil { syncGuild(d, guild.ID) } }
     })
     s.dg.AddHandler(func(d *discordgo.Session, g *discordgo.GuildCreate) {
         if g.Guild != nil { syncGuild(d, g.ID) }
