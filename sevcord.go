@@ -91,15 +91,12 @@ func (s *Sevcord) Listen() {
 	cmds := make([]*discordgo.ApplicationCommand, 0, len(s.commands))
 	for _, cmd := range s.commands {
 		v := cmd.dg()
-		dmPermission := false
+
 		cmds = append(cmds, &discordgo.ApplicationCommand{
 			Name:        v.Name,
 			Description: v.Description,
 			Options:     v.Options,
 			Type:        discordgo.ChatApplicationCommand,
-
-			DefaultMemberPermissions: cmd.permissions(),
-			DMPermission:             &dmPermission,
 		})
 	}
 	s.lock.RUnlock()
