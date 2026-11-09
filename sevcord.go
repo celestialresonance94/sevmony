@@ -107,21 +107,43 @@ func (s *Sevcord) Listen() {
 		if guildID == "" {
 			return
 		}
-		_, err := d.ApplicationCommandBulkOverwrite(d.State.User.ID, guildID, cmds)
-		stored, err := d.ApplicationCommands(d.State.User.ID, guildID)
 
+		appID := d.State.User.ID
+
+		// Register each command individually
+		for _, cmd := range cmds {
+			registered, err := d.ApplicationCommandCreate(
+				appID,
+				guildID,
+				cmd,
+			)
+
+			if err != nil {
+				Logger.Printf(
+					"Failed to register /%s in guild %s: %v",
+					cmd.Name, guildID, err,
+				)
+				continue
+			}
+
+			Logger.Printf(
+				"Registered /%s (ID: %s)",
+				registered.Name,
+				registered.ID,
+			)
+		}
+
+		// Verify stored commands
+		stored, err := d.ApplicationCommands(appID, guildID)
 		if err != nil {
 			Logger.Printf("Failed to fetch commands: %v", err)
-		} else {
-			Logger.Printf("Harmony returned %d stored commands", len(stored))
-
-			for _, c := range stored {
-				Logger.Printf(
-					"Stored: /%s | ID: %s | Type: %d",
-					c.Name, c.ID, c.Type,
-				)
-			}
+			return
 		}
+
+		Logger.Printf(
+			"Harmony returned %d stored commands in guild %s",
+			len(stored), guildID,
+		)
 	}
 
 	// Handlers
