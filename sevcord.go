@@ -104,14 +104,34 @@ func (s *Sevcord) Listen() {
 	}
 	s.lock.RUnlock()
 
+	// Register commands per guild, because Harmony currently displays
+	// guild-scoped commands more reliably than global commands.
+	syncGuild := func(d *discordgo.Session, guildID string) {
+		if guildID == "" {
+			return
+		}
+		_, err := d.ApplicationCommandBulkOverwrite(d.State.User.ID, guildID, cmds)
+		if err != nil {
+			Logger.Printf("Error updating commands in guild %s: %v", guildID, err)
+		} else {
+			Logger.Printf("Updated %d commands in guild %s", len(cmds), guildID)
+		}
+	}
+
 	// Handlers
 	s.dg.AddHandler(s.interactionHandler)
-	s.dg.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
-		_, err := s.ApplicationCommandBulkOverwrite(s.State.User.ID, "", cmds)
-		if err != nil {
-			Logger.Println("Error updating commands", err)
-		}
+	s.dg.AddHandler(func(d *discordgo.Session, r *discordgo.Ready) {
 		Logger.Println("Bot Ready")
+		for _, guild := range r.Guilds {
+			if guild != nil {
+				syncGuild(d, guild.ID)
+			}
+		}
+	})
+	s.dg.AddHandler(func(d *discordgo.Session, g *discordgo.GuildCreate) {
+		if g.Guild != nil {
+			syncGuild(d, g.ID)
+		}
 	})
 	if s.messageHandler != nil {
 		s.dg.AddHandler(func(d *discordgo.Session, m *discordgo.MessageCreate) {
