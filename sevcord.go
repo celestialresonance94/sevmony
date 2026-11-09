@@ -108,10 +108,19 @@ func (s *Sevcord) Listen() {
 			return
 		}
 		_, err := d.ApplicationCommandBulkOverwrite(d.State.User.ID, guildID, cmds)
+		stored, err := d.ApplicationCommands(d.State.User.ID, guildID)
+
 		if err != nil {
-			Logger.Printf("Error updating commands in guild %s: %v", guildID, err)
+			Logger.Printf("Failed to fetch commands: %v", err)
 		} else {
-			Logger.Printf("Updated %d commands in guild %s", len(cmds), guildID)
+			Logger.Printf("Harmony returned %d stored commands", len(stored))
+
+			for _, c := range stored {
+				Logger.Printf(
+					"Stored: /%s | ID: %s | Type: %d",
+					c.Name, c.ID, c.Type,
+				)
+			}
 		}
 	}
 
