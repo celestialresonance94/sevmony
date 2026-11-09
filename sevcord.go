@@ -140,6 +140,16 @@ func (s *Sevcord) Listen() {
 			return
 		}
 
+		for _, cmd := range stored {
+			Logger.Printf(
+				"Stored command: name=%q id=%q type=%d description=%q",
+				cmd.Name,
+				cmd.ID,
+				cmd.Type,
+				cmd.Description,
+			)
+		}
+
 		Logger.Printf(
 			"Harmony returned %d stored commands in guild %s",
 			len(stored), guildID,
@@ -150,11 +160,6 @@ func (s *Sevcord) Listen() {
 	s.dg.AddHandler(s.interactionHandler)
 	s.dg.AddHandler(func(d *discordgo.Session, r *discordgo.Ready) {
 		Logger.Println("Bot Ready")
-		for _, guild := range r.Guilds {
-			if guild != nil {
-				syncGuild(d, guild.ID)
-			}
-		}
 	})
 	s.dg.AddHandler(func(d *discordgo.Session, g *discordgo.GuildCreate) {
 		if g.Guild != nil {
