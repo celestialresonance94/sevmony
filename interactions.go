@@ -20,6 +20,9 @@ func (s *Sevcord) checkMiddleware(ctx Ctx, command string) bool {
 }
 
 func (s *Sevcord) interactionHandler(dg *discordgo.Session, i *discordgo.InteractionCreate) {
+    if i == nil || i.Interaction == nil { Logger.Println("Received nil interaction"); return }
+    defer func() { if r := recover(); r != nil { Logger.Printf("Interaction handler panic: %v", r) } }()
+    Logger.Printf("Received interaction type=%d guild=%s id=%s", i.Type, i.GuildID, i.ID)
 	ctx := &InteractionCtx{
 		dg: dg,
 		i:  i.Interaction,
@@ -33,6 +36,7 @@ func (s *Sevcord) interactionHandler(dg *discordgo.Session, i *discordgo.Interac
 		v, exists := s.commands[dat.Name]
 		s.lock.RUnlock()
 		if !exists {
+            Logger.Printf("Unknown slash command %q", dat.Name)
 			return
 		}
 		cmdOpts := dat.Options
@@ -99,7 +103,10 @@ func (s *Sevcord) interactionHandler(dg *discordgo.Session, i *discordgo.Interac
 
 		// Check midleware
 		if s.checkMiddleware(ctx, dat.Name) {
-			v.(*SlashCommand).Handler(ctx, pars)
+			if v.(*SlashCommand).Handler == nil { Logger.Printf("No handler for /%s", dat.Name); return }
+            Logger.Printf("Executing /%s", dat.Name)
+            v.(*SlashCommand).Handler(ctx, pars)
+            Logger.Printf("Finished /%s", dat.Name)
 		}
 
 	case discordgo.InteractionMessageComponent:

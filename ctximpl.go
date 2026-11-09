@@ -77,9 +77,11 @@ func (i *InteractionCtx) Acknowledge() error {
 	if i.component { // if component, then make it so that response will be ephemeral instead of update
 		return nil
 	}
-	return i.dg.InteractionRespond(i.i, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-	})
+	err := i.dg.InteractionRespond(i.i, &discordgo.InteractionResponse{
+        Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+    })
+    if err != nil { i.acknowledged = false; Logger.Printf("Interaction defer failed: %v", err) }
+    return err
 }
 
 func (i *InteractionCtx) Respond(msg MessageSend) error {
@@ -91,7 +93,7 @@ func (i *InteractionCtx) Respond(msg MessageSend) error {
 			Embeds:     b.Embeds,
 			Components: b.Components,
 		})
-		return err
+		if err != nil { Logger.Printf("Interaction followup failed: %v", err) }; return err
 	}
 	if i.component && !i.acknowledged { // if not acknowledged, then update instead of ephemeral (no non-ephemeral response allowed on components since no one needs that)
 		typ := discordgo.InteractionResponseUpdateMessage

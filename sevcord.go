@@ -5,6 +5,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+ "reflect"
+ "sort"
 	"strings"
 	"sync"
 
@@ -91,81 +93,73 @@ func (s *Sevcord) Listen() {
 	cmds := make([]*discordgo.ApplicationCommand, 0, len(s.commands))
 	for _, cmd := range s.commands {
 		v := cmd.dg()
-
+		dmPermission := false
 		cmds = append(cmds, &discordgo.ApplicationCommand{
 			Name:        v.Name,
 			Description: v.Description,
 			Options:     v.Options,
 			Type:        discordgo.ChatApplicationCommand,
+
+			DefaultMemberPermissions: cmd.permissions(),
+			DMPermission:             &dmPermission,
 		})
 	}
 	s.lock.RUnlock()
 
-	// Register commands per guild, because Harmony currently displays
-	// guild-scoped commands more reliably than global commands.
-	syncGuild := func(d *discordgo.Session, guildID string) {
-		if guildID == "" {
-			return
-		}
+	// Serialize syncs for a guild: Ready and GuildCreate may both announce it.
+    var syncMu sync.Mutex
+    syncGuild := func(d *discordgo.Session, guildID string) {
+        if guildID == "" || d.State == nil || d.State.User == nil { return }
+        syncMu.Lock()
+        defer syncMu.Unlock()
+        appID := d.State.User.ID
+        existing, err := d.ApplicationCommands(appID, guildID)
+        if err != nil { Logger.Printf("Guild %s: list commands: %v", guildID, err); return }
+        byName := make(map[string]*discordgo.ApplicationCommand, len(existing))
+        for _, c := range existing { byName[c.Name] = c }
+        desired := make(map[string]*discordgo.ApplicationCommand, len(cmds))
+        for _, c := range cmds { desired[c.Name] = c }
+        names := make([]string, 0, len(desired))
+        for name := range desired { names = append(names, name) }
+        sort.Strings(names)
+        created, updated, unchanged, removed := 0, 0, 0, 0
+        for _, name := range names {
+            want := desired[name]
+            old, exists := byName[name]
+            if !exists {
+                if _, err := d.ApplicationCommandCreate(appID, guildID, want); err != nil {
+                    Logger.Printf("Guild %s: create /%s: %v", guildID, name, err)
+                } else { created++ }
+                continue
+            }
+            if old.Description == want.Description && old.Type == want.Type && reflect.DeepEqual(old.Options, want.Options) {
+                unchanged++
+                continue
+            }
+            if old.ID == "" { Logger.Printf("Guild %s: cannot edit /%s (missing ID)", guildID, name); continue }
+            if _, err := d.ApplicationCommandEdit(appID, guildID, old.ID, want); err != nil {
+                Logger.Printf("Guild %s: edit /%s: %v", guildID, name, err)
+            } else { updated++ }
+        }
+        // This module owns the guild's application commands. Remove names no longer defined.
+        for _, old := range existing {
+            if _, exists := desired[old.Name]; exists { continue }
+            if old.ID == "" { Logger.Printf("Guild %s: cannot delete /%s (missing ID)", guildID, old.Name); continue }
+            if err := d.ApplicationCommandDelete(appID, guildID, old.ID); err != nil {
+                Logger.Printf("Guild %s: delete /%s: %v", guildID, old.Name, err)
+            } else { removed++ }
+        }
+        Logger.Printf("Guild %s: created=%d updated=%d unchanged=%d removed=%d", guildID, created, updated, unchanged, removed)
+    }
 
-		appID := d.State.User.ID
-
-		// Register each command individually
-		for _, cmd := range cmds {
-			registered, err := d.ApplicationCommandCreate(
-				appID,
-				guildID,
-				cmd,
-			)
-
-			if err != nil {
-				Logger.Printf(
-					"Failed to register /%s in guild %s: %v",
-					cmd.Name, guildID, err,
-				)
-				continue
-			}
-
-			Logger.Printf(
-				"Registered /%s (ID: %s)",
-				registered.Name,
-				registered.ID,
-			)
-		}
-
-		// Verify stored commands
-		stored, err := d.ApplicationCommands(appID, guildID)
-		if err != nil {
-			Logger.Printf("Failed to fetch commands: %v", err)
-			return
-		}
-
-		for _, cmd := range stored {
-			Logger.Printf(
-				"Stored command: name=%q id=%q type=%d description=%q",
-				cmd.Name,
-				cmd.ID,
-				cmd.Type,
-				cmd.Description,
-			)
-		}
-
-		Logger.Printf(
-			"Harmony returned %d stored commands in guild %s",
-			len(stored), guildID,
-		)
-	}
-
-	// Handlers
-	s.dg.AddHandler(s.interactionHandler)
-	s.dg.AddHandler(func(d *discordgo.Session, r *discordgo.Ready) {
-		Logger.Println("Bot Ready")
-	})
-	s.dg.AddHandler(func(d *discordgo.Session, g *discordgo.GuildCreate) {
-		if g.Guild != nil {
-			syncGuild(d, g.ID)
-		}
-	})
+    s.dg.AddHandler(s.interactionHandler)
+    s.dg.AddHandler(func(d *discordgo.Session, r *discordgo.Ready) {
+        Logger.Println("Bot Ready")
+        for _, guild := range r.Guilds { if guild != nil { syncGuild(d, guild.ID) } }
+    })
+    s.dg.AddHandler(func(d *discordgo.Session, g *discordgo.GuildCreate) {
+        if g.Guild != nil { syncGuild(d, g.ID) }
+    })
 	if s.messageHandler != nil {
 		s.dg.AddHandler(func(d *discordgo.Session, m *discordgo.MessageCreate) {
 			if m.Author == nil {
